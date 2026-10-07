@@ -175,12 +175,8 @@ jobs:
           gh variable delete INSTANCE_CREATED_INFO 2>/dev/null || true
           gh variable delete SUCCESS_PATTERN_DATA 2>/dev/null || true
           echo "Success state and pattern tracking reset completed"
-
-      - name: Adaptive Scheduling Intelligence
-        if: env.ENABLE_ADAPTIVE_SCHEDULING == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/adaptive-scheduler.sh
+          ./scripts/adaptive-scheduler.sh
+      
 
       - name: Create requirements file
         run: echo "oci-cli" > requirements.txt
