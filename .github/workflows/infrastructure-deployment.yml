@@ -72,6 +72,10 @@ env:
   OCI_CLI_DEBUG: ${{ inputs.oci_cli_debug && 'true' || 'false' }}
   INTERNAL_DEBUG: ${{ github.event_name == 'workflow_dispatch' && (inputs.internal_debug && 'true' || 'false') || 'true' }}
   ENABLE_NOTIFICATIONS: ${{ github.event_name == 'workflow_dispatch' && (inputs.send_notifications && 'true' || 'false') || 'true' }}
+  OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
+  OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_ID }}
+  COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
+  COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_ID }}
   # Enable instance check by default to use state management cache (can be overridden manually)
   CHECK_EXISTING_INSTANCE: ${{ github.event_name == 'workflow_dispatch' && (inputs.check_existing_instance && 'true' || 'false') || 'true' }}
   # Suppress OCI CLI file permissions warnings
