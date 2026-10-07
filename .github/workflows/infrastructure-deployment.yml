@@ -223,7 +223,7 @@ jobs:
           TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
         run: ./scripts/preflight-check.sh
 
-      - name: Setup OCI and SSH configuration (parallel)
+      - name: Setup OCI and SSH configuration
         env:
           OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
           OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
@@ -233,9 +233,9 @@ jobs:
           OCI_PROXY_URL: ${{ secrets.OCI_PROXY_URL }}
           INSTANCE_SSH_PUBLIC_KEY: ${{ secrets.INSTANCE_SSH_PUBLIC_KEY }}
         run: |
-          # Run setup scripts in parallel for faster execution
-          ./scripts/setup-oci.sh &
-          ./scripts/setup-ssh.sh &
+          # Run setup scripts sequentially to prevent race conditions on config files
+          ./scripts/setup-oci.sh
+          ./scripts/setup-ssh.sh
           wait
 
       - name: Pre-Launch Debug Info
