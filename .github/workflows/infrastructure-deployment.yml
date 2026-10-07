@@ -169,6 +169,12 @@ jobs:
         if: inputs.reset_success_state
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
         run: |
           echo "Resetting INSTANCE_CREATED variable to allow new deployment attempts"
           gh variable set INSTANCE_CREATED --body "false" || true
