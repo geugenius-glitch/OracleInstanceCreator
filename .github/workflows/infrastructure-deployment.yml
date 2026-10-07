@@ -120,7 +120,7 @@ jobs:
       # Adaptive scheduling configuration
       ENABLE_ADAPTIVE_SCHEDULING: ${{ inputs.adaptive_scheduling && 'true' || 'true' }}
       ENABLE_REGION_OPTIMIZATION: ${{ inputs.region_optimization && 'true' || 'true' }}
-      ORACLE_REGION_TIMEZONE: "Asia/Singapore"
+      ORACLE_REGION_TIMEZONE: "France Central (Paris)"
       SUCCESS_TRACKING_ENABLED: "true"
     steps:
       - name: Checkout repository
