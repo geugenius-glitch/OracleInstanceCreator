@@ -1,89 +1,35 @@
----
-permissions:
-  contents: read
-  actions: write
-name: 'OCI Orchestrator - Infrastructure Deployment'
+name: Deploy OCI Infrastructure (Parallel Orchestration)
 
 on:
-  # schedule:
-    # Four-tier optimization: 10-min off-peak weekdays, 15-min peak weekdays, 10-min all weekend (~4,320 runs/month)
-    # All schedules target Oracle Cloud optimal availability windows for maximum deployment success
-
-    # TIER 1: Off-peak aggressive (10-min intervals) - Weekdays only
-    # UTC 2-7am = SGT 10am-3pm (lunch/afternoon lull)
-    # UTC 2-7am = EST 9pm-2am (late evening/night)
-    # UTC 2-7am = CET 3-8am (early morning)
-    # - cron: "*/10 2-7 * * 1-5"
-
-    # TIER 2: Late night/early morning (10-min intervals) - Weekdays only
-    # UTC 20-23 = SGT 4am-7am (early morning low usage, avoids overlap with TIER 1)
-    # - cron: "*/10 20-23 * * 1-5"
-
-    # TIER 3: Peak hours conservative (15-min intervals) - Weekdays only
-    # UTC 8-19 = SGT 4pm-3am (business end + evening peak)
-    # - cron: "*/15 8-19 * * 1-5"
-
-    # TIER 4: Weekend boost (10-min intervals all day)
-    # Saturdays and Sundays - lower weekend cloud usage, no overlap with weekday tiers
-    # - cron: "*/10 * * * 6,0"
-
-  # Disabled to avoid triggering 429 on OCI API; also failures confuse claude when trying to fix PR checks
-  # pull_request:
-  #  types: [opened, synchronize, ready_for_review, reopened]
-
   workflow_dispatch:
     inputs:
-      oci_cli_debug:
-        description: 'Enable OCI CLI --debug flag (verbose Oracle API request/response logs)'
-        type: boolean
-        default: false
-      internal_debug:
-        description: 'Enable internal script debug logging (execution flow, decisions, state changes)'
-        type: boolean
-        default: true
       send_notifications:
         description: 'Send Telegram notifications'
+        required: false
         type: boolean
         default: true
       check_existing_instance:
-        description: 'Check for existing instance before launch'
+        description: 'Check for existing instances before launching'
+        required: false
         type: boolean
         default: true
       reset_success_state:
-        description: 'Reset INSTANCE_CREATED variable to allow new attempts'
+        description: 'Reset success state and run even if previously successful'
+        required: false
         type: boolean
         default: false
-      adaptive_scheduling:
-        description: 'Enable adaptive scheduling based on success patterns'
-        type: boolean
-        default: true
-      region_optimization:
-        description: 'Use region-specific timing optimization'
-        type: boolean
-        default: true
-
-# Prevent multiple workflow runs from overlapping to avoid billing spikes
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
 
 env:
-  # Global environment variables - Dual debug flag support
-  OCI_CLI_DEBUG: ${{ inputs.oci_cli_debug && 'true' || 'false' }}
-  INTERNAL_DEBUG: ${{ github.event_name == 'workflow_dispatch' && (inputs.internal_debug && 'true' || 'false') || 'true' }}
   ENABLE_NOTIFICATIONS: ${{ github.event_name == 'workflow_dispatch' && (inputs.send_notifications && 'true' || 'false') || 'true' }}
+  CHECK_EXISTING_INSTANCE: ${{ github.event_name == 'workflow_dispatch' && (inputs.check_existing_instance && 'true' || 'false') || 'true' }}
+  OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: true
   OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
   OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_ID }}
   COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
   COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_ID }}
-  # Enable instance check by default to use state management cache (can be overridden manually)
-  CHECK_EXISTING_INSTANCE: ${{ github.event_name == 'workflow_dispatch' && (inputs.check_existing_instance && 'true' || 'false') || 'true' }}
-  # Suppress OCI CLI file permissions warnings
-  OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: true
 
 jobs:
   create-instance:
-    # Skip execution if instance already created (unless manually reset)
     if: ${{ github.event.repository.vars.INSTANCE_CREATED != 'true' || inputs.reset_success_state }}
     runs-on: ubuntu-latest
     name: Deploy OCI Infrastructure (Parallel Orchestration)
@@ -91,328 +37,31 @@ jobs:
       contents: read
     outputs:
       script_exit_code: ${{ steps.launch-instances.outputs.script_exit_code }}
+    
     env:
+      OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
       OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_ID }}
-    OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
-    COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_ID }}
-    COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
+      COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
+      COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_ID }}
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+      OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
+      OCI_REGION: ${{ secrets.OCI_REGION }}
+      OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
 
-  OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-  OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
-  OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
-  OCI_REGION: ${{ secrets.OCI_REGION }}
-  OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-      # Common configuration for both shapes
-      # Multi-AD support: Use comma-separated list for multiple ADs
-      # Example: "fgaj:AP-SINGAPORE-1-AD-1,fgaj:AP-SINGAPORE-1-AD-2,fgaj:AP-SINGAPORE-1-AD-3"
-      OCI_AD: "fgaj:AP-SINGAPORE-1-AD-1"
-      OCI_SHAPE: "VM.Standard.A1.Flex"  # Default shape for validation (overridden per-shape)
-      OCI_OCPUS: "4"  # Default for A1.Flex validation (overridden per-shape)
-      OCI_MEMORY_IN_GBS: "24"  # Default for A1.Flex validation (overridden per-shape)
-      INSTANCE_DISPLAY_NAME: "default-instance"  # Default for validation (overridden per-shape)
-      ASSIGN_PUBLIC_IP: "false"
-      OPERATING_SYSTEM: "Oracle Linux"
-      OS_VERSION: "10"
-      # Boot volume configuration
-      BOOT_VOLUME_SIZE: "50"
-      # Instance recovery and compatibility settings
-      RECOVERY_ACTION: "RESTORE_INSTANCE"
-      LEGACY_IMDS_ENDPOINTS: "false"
-      # Retry configuration for multi-AD cycling
-      RETRY_WAIT_TIME: "30"
-      # Transient error retry configuration (retries on same AD before cycling)
-      TRANSIENT_ERROR_MAX_RETRIES: "3"
-      TRANSIENT_ERROR_RETRY_DELAY: "15"
-      # Instance verification timeout configuration
-      INSTANCE_VERIFY_MAX_CHECKS: "5"
-      INSTANCE_VERIFY_DELAY: "30"
-      # Logging configuration (set to 'json' for structured logging)
-      LOG_FORMAT: "text"
-      # Cached image IDs for supported instance shapes (update periodically)
-      OCI_CACHED_OL10_ARM_IMAGE: "ocid1.image.oc1.ap-singapore-1.aaaaaaaay4vc5rcekxthq7cillis3qred5xyz7kmqd6wuaoknk4zukohqlua"
-      OCI_CACHED_OL10_AMD_IMAGE: "ocid1.image.oc1.ap-singapore-1.aaaaaaaaitll52n3sr73g2gaclby2ph5whrmb5l3tbo47i6atle6z3cemr6a"
-      # Adaptive scheduling configuration
-      ENABLE_ADAPTIVE_SCHEDULING: ${{ inputs.adaptive_scheduling && 'true' || 'true' }}
-      ENABLE_REGION_OPTIMIZATION: ${{ inputs.region_optimization && 'true' || 'true' }}
-      ORACLE_REGION_TIMEZONE: "France Central (Paris)"
-      SUCCESS_TRACKING_ENABLED: "true"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Get current date for cache key
-        id: get-date
-        run: echo "date=$(date '+%Y-%m-%d')" >> "$GITHUB_OUTPUT"
-
-      - name: Generate cache key with region hash
-        id: cache-key
-        env:
-          OCI_REGION: ${{ secrets.OCI_REGION }}
+      - name: Force Export OCI Environment Variables
         run: |
-          # Generate region hash to match state-manager.sh logic
-          region_hash=$(echo -n "$OCI_REGION" | sha256sum | cut -d' ' -f1 | head -c 8)
-          echo "key=oci-instances-${region_hash}-v1-${{ steps.get-date.outputs.date }}" >> "$GITHUB_OUTPUT"
-          echo "prefix=oci-instances-${region_hash}-v1-" >> "$GITHUB_OUTPUT"
+          echo "OCI_COMPARTMENT_ID=${{ secrets.OCI_COMPARTMENT_ID }}" >> $GITHUB_ENV
+          echo "OCI_COMPARTMENT_OCID=${{ secrets.OCI_COMPARTMENT_ID }}" >> $GITHUB_ENV
+          echo "COMPARTMENT_ID=${{ secrets.OCI_COMPARTMENT_ID }}" >> $GITHUB_ENV
+          echo "COMPARTMENT_OCID=${{ secrets.OCI_COMPARTMENT_ID }}" >> $GITHUB_ENV
 
-      - name: Restore instance state cache
-        id: cache-instance-state
-        uses: actions/cache/restore@v4.2.4
-        with:
-          path: .cache/oci-state
-          key: ${{ steps.cache-key.outputs.key }}
-          restore-keys: |
-            ${{ steps.cache-key.outputs.prefix }}
-            oci-instances-
-
-      - name: Initialize state manager
-        env:
-          CACHE_ENABLED: "true"
-          CACHE_TTL_HOURS: "24"
-          CACHE_DATE_KEY: ${{ steps.get-date.outputs.date }}
-        run: |
-          # Make state manager executable
-          chmod +x scripts/state-manager.sh
-          # Initialize state management system
-          ./scripts/state-manager.sh init
-          # Show current state for debugging
-          if [[ "$INTERNAL_DEBUG" == "true" ]]; then
-            ./scripts/state-manager.sh print
-          fi
-
-      - name: Reset success state if requested
-        if: inputs.reset_success_state
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
-          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
-          OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-        run: |
-          echo "Resetting INSTANCE_CREATED variable to allow new deployment attempts"
-          gh variable set INSTANCE_CREATED --body "false" || true
-          gh variable delete INSTANCE_CREATED_INFO 2>/dev/null || true
-          gh variable delete SUCCESS_PATTERN_DATA 2>/dev/null || true
-          echo "Success state and pattern tracking reset completed"
-          ./scripts/adaptive-scheduler.sh
-      
-
-      - name: Create requirements file
-        run: echo "oci-cli" > requirements.txt
-
-      - name: Setup Python
-        uses: actions/setup-python@v5.6.0
-        id: setup-python
-        with:
-          python-version: '3.x'
-          check-latest: false
-          update-environment: true
-
-      - name: Cache pip dependencies
-        uses: actions/cache@v4.2.4
-        with:
-          path: |
-            ~/.cache/pip
-            ~/.local/lib
-            ~/.local/bin
-          key: ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-pip-
-
-      - name: Install OCI CLI
-        run: pip install --user -r requirements.txt
-
-      - name: Production preflight check
-        env:
-          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
-          OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
-          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-          OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
-          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
-          OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
-          OCI_PROXY_URL: ${{ secrets.OCI_PROXY_URL }}
-          INSTANCE_SSH_PUBLIC_KEY: ${{ secrets.INSTANCE_SSH_PUBLIC_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
-        run: ./scripts/preflight-check.sh
-
-      - name: Setup OCI and SSH configuration
-        env:
-          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
-          OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
-          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-          OCI_PROXY_URL: ${{ secrets.OCI_PROXY_URL }}
-          INSTANCE_SSH_PUBLIC_KEY: ${{ secrets.INSTANCE_SSH_PUBLIC_KEY }}
-        run: |
-          # Run setup scripts sequentially to prevent race conditions on config files
-          ./scripts/setup-oci.sh
-          ./scripts/setup-ssh.sh
-          wait
-
-      - name: Pre-Launch Debug Info
-        if: env.INTERNAL_DEBUG == 'true'
-        run: |
-          echo "=== PRE-LAUNCH DEBUG INFO ==="
-          echo "Workflow: ${{ github.workflow }}"
-          echo "Run ID: ${{ github.run_id }}"
-          echo "Event: ${{ github.event_name }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "OCI_CLI_DEBUG: $OCI_CLI_DEBUG"
-          echo "INTERNAL_DEBUG: $INTERNAL_DEBUG"
-          echo "ENABLE_NOTIFICATIONS: $ENABLE_NOTIFICATIONS"
-          echo "Current directory: $(pwd)"
-          echo "Available scripts:"
-          ls -la scripts/
-          echo "launch-parallel.sh permissions:"
-          ls -la scripts/launch-parallel.sh
-          echo "Shell options before execution:"
-          set +x || true  # Don't fail if -x not set
-          echo "=== END PRE-LAUNCH DEBUG ==="
-
-      - name: Launch OCI Instances (Parallel)
+      - name: Setup OCI CLI & Launch Instances
         id: launch-instances
-        env:
-          OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
-          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
-          OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
-          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          OCI_PROXY_URL: ${{ secrets.OCI_PROXY_URL }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
-          CACHE_ENABLED: "true"
-          CACHE_TTL_HOURS: "24"
-          CACHE_DATE_KEY: ${{ steps.get-date.outputs.date }}
         run: |
-          # CRITICAL: This step MUST NOT fail on expected Oracle responses
-          # Expected responses (capacity/limits/rate limits) should return exit 0
-          # Only auth/config/system errors should return non-zero
-          #
-          # DEBUG FLAGS:
-          # - OCI_CLI_DEBUG: Controls --debug flag for Oracle API request/response logging
-          # - INTERNAL_DEBUG: Controls internal script logging and workflow debug steps
-          
-          echo "=== LAUNCHING OCI INSTANCES (PARALLEL) ==="
-          echo "Timestamp: $(date -Iseconds)"
-          
-          # Execute with explicit exit code capture and debugging
-          set -euo pipefail
-          script_exit_code=0
-          
-          # Run the script and capture its exit code
-          ./scripts/launch-parallel.sh || script_exit_code=$?
-          
-          echo "=== LAUNCH SCRIPT COMPLETED ==="
-          echo "Script exit code: $script_exit_code"
-          echo "Timestamp: $(date -Iseconds)"
-          
-          # Log exit code interpretation for debugging
-          case $script_exit_code in
-            0) echo "SUCCESS: Instance creation succeeded or expected Oracle constraints encountered" ;;
-            1) echo "FAILURE: General error or authentication/configuration issue" ;;
-            2) echo "SUCCESS: Oracle capacity constraint (expected, will retry on schedule)" ;;  
-            5) echo "SUCCESS: User limit reached (expected free tier behavior)" ;;
-            6) echo "SUCCESS: Rate limit encountered (expected Oracle API behavior)" ;;
-            124) echo "TIMEOUT: Script execution timeout" ;;
-            *) echo "UNKNOWN: Unexpected exit code $script_exit_code" ;;
-          esac
-          
-          # Workflow success logic: Only fail on genuine errors (not expected Oracle responses)
-          if [[ $script_exit_code -eq 0 || $script_exit_code -eq 2 || $script_exit_code -eq 5 || $script_exit_code -eq 6 ]]; then
-            echo "WORKFLOW SUCCESS: Exit code $script_exit_code indicates expected behavior"
-            # Store exit code for post-launch debug step
-            echo "script_exit_code=$script_exit_code" >> $GITHUB_OUTPUT
-            exit 0  # Ensure workflow step succeeds for expected scenarios
-          else
-            echo "WORKFLOW FAILURE: Exit code $script_exit_code indicates genuine failure"
-            echo "script_exit_code=$script_exit_code" >> $GITHUB_OUTPUT
-            exit $script_exit_code  # Propagate actual failure
-          fi
-
-      - name: Post-Launch Debug Info
-        if: always() && env.INTERNAL_DEBUG == 'true'
-        run: |
-          echo "=== POST-LAUNCH DEBUG INFO ==="
-          echo "Step conclusion: ${{ steps.launch-instances.conclusion }}"
-          echo "Script exit code: ${{ steps.launch-instances.outputs.script_exit_code }}"
-          echo "Workflow job status: ${{ job.status }}"
-          echo "Timestamp: $(date -Iseconds)"
-          
-          # Show any cached state for debugging
-          if [[ -d .cache/oci-state ]]; then
-            echo "OCI state cache contents:"
-            find .cache/oci-state -type f -exec echo "  {}: $(cat {})" \;
-          fi
-          
-          echo "=== END POST-LAUNCH DEBUG ==="
-
-      - name: Verify instances and update state
-        if: always()
-        env:
-          OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          CACHE_ENABLED: "true"
-          CACHE_TTL_HOURS: "24"
-          CACHE_DATE_KEY: ${{ steps.get-date.outputs.date }}
-        run: |
-          # Verify actual instance state via OCI API and update cache
-          echo "Verifying instance state and updating cache..."
-          if [[ "$INTERNAL_DEBUG" == "true" ]]; then
-            ./scripts/state-manager.sh print
-          fi
-
-      - name: Save instance state cache
-        if: always()
-        uses: actions/cache/save@v4.2.4
-        with:
-          path: .cache/oci-state
-          key: ${{ steps.cache-key.outputs.key }}
-
-      - name: Schedule Optimization Analysis
-        if: always() && env.ENABLE_ADAPTIVE_SCHEDULING == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-        run: ./scripts/schedule-optimizer.sh
-
-  notify-on-genuine-failure:
-    runs-on: ubuntu-latest
-    name: Send Failure Notification (Genuine Errors Only)
-    needs: create-instance
-    # CRITICAL LOGIC: Only notify on genuine failures, NOT on expected Oracle responses
-    # This job should NOT trigger since the main job now handles expected responses correctly
-    # If this job triggers, it indicates a real authentication/configuration/system failure
-    if: failure()
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Debug Failure Analysis
-        run: |
-          echo "=== GENUINE FAILURE DETECTED ==="
-          echo "This notification job should NOT trigger for capacity/limit/rate limit responses"
-          echo "If this job is running, it indicates a real system/auth/config failure"
-          echo "Job status: ${{ needs.create-instance.result }}"
-          echo "Script exit code: ${{ needs.create-instance.outputs.script_exit_code }}"
-          echo "Timestamp: $(date -Iseconds)"
-          echo "=== ANALYSIS COMPLETE ==="
-
-      - name: Send genuine failure notification
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
-        run: |
-          # Only send notifications if enabled
-          if [[ "$ENABLE_NOTIFICATIONS" == "true" ]]; then
-            source scripts/notify.sh
-            
-            # Enhanced failure notification with context  
-            notify_workflow_completed "failed" "🚨 OCI Workflow Genuine Failure - Run ID: ${{ github.run_id }} - This is NOT a capacity/limit issue but indicates real auth/config problems requiring attention."
-          else
-            echo "Notifications disabled - would have sent genuine failure alert"
-          fi
+          chmod +x ./launch.sh
+          ./launch.sh
